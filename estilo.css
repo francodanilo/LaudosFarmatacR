@@ -1,0 +1,19 @@
+h1.title {
+    font-size: 22pt;
+    font-style: bold;
+}
+h1{
+    font-size: 16pt;
+    font-style: bold;
+  }
+h2{
+    font-size: 14pt;
+    font-style: bold;
+  }
+h3{
+    font-size: 12pt;
+    font-style: bold;
+  }
+  p{
+    text-align: justify;
+  }
