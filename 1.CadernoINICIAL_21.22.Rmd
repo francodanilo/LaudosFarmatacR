@@ -1,0 +1,211 @@
+---
+author: "Danilo Franco"
+output: 
+  html_document: 
+    css: http://cdn.jsdelivr.net/gh/francodanilo/LaudosFarmatacR/estilo.css
+    includes:
+      in_header: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/cab.html
+    theme: "default"
+bibliography: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/references.bib
+csl: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/abnt.csl
+lang: pt-br
+---
+
+```{r bibliotecas, include=FALSE}
+library(tidyverse)
+library(xlsx)
+library(agricolae)
+library(knitr)
+library(kableExtra)
+```
+
+```{r funções, include=FALSE}
+
+```
+
+```{r carregando planilhas, include=FALSE}
+arquivo = choose.files()
+setwd(dirname(arquivo))
+knitr::opts_knit$set(root.dir = getwd())
+
+aux = read.xlsx(arquivo, sheetName = "aux", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) 
+
+geral = read.xlsx(arquivo, sheetName = "geral", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+cultura = read.xlsx(arquivo, sheetName = "cultura", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+alvo = read.xlsx(arquivo, sheetName = "alvo", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+produto = read.xlsx(arquivo, sheetName = "produto", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+tratamentos = read.xlsx(arquivo, sheetName = "tratamentos", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+coment = read.xlsx(arquivo, sheetName = "coment", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+metod.apl = read.xlsx(arquivo, sheetName = "metod.apl", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  filter(check == "x")
+
+dados.apl = read.xlsx(arquivo, sheetName = "dados.apl", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  filter(check == "x") %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+metod.avl = read.xlsx(arquivo, sheetName = "metod.avl", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  filter(check == "x")
+
+cronograma = read.xlsx(arquivo, sheetName = "cronograma", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_at(c("BBCH"), ~replace(., is.na(.), " ")) %>% 
+  mutate_at(c("Data"), ~format(.,"%d/%m/%Y"))
+
+manutencao = read.xlsx(arquivo, sheetName = "manutencao", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+legendas = read.xlsx(arquivo, sheetName = "legendas", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+discussao = read.xlsx(arquivo, sheetName = "discussao", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+dados = read.xlsx(arquivo, sheetName = "dados", encoding="UTF-8", startRow=6, stringsAsFactors=TRUE)
+```
+
+```{r configuração de varieaveis, include=FALSE}
+data.inicial = min(cronograma$Start.Date)
+data.final = max(cronograma$Start.Date)
+periodo.ensaio = as.numeric(difftime(data.final,data.inicial,units = "days"))
+5
+area.ensaio = as.numeric(geral$info[15])*as.numeric(geral$info[16])*as.numeric(geral$info[18])
+
+```
+
+---
+title: "Caderno - `r geral$info[1]`"
+date: `r geral$info[21]`
+---
+
+# Projeto Técnico
+
+
+## Requerente/Contratante
+`r geral$info[2]`
+
+# Objetivo da pesquisa
+
+`r geral$info[5]`
+
+## Local de condução da pesquisa
+
+```{r local, echo=FALSE, message=FALSE, warning=FALSE}
+kable(geral[6:13,], format = "html", col.names = c("","Dados de preenchimento"), row.names = FALSE,align = 'l') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE, font_size = 16) %>% 
+  footnote(general_title = "Observações:", general = c("Os campos *vazios* deverão ser preenchidos manualmente, visto que não são restrições para a instalação do ensaio.","Os campos previamente preenchidos deverão ser respeitados, visto que foram definidos previamente e são componentes do projeto técnico."), fixed_small_size = TRUE)
+```
+
+<div style="page-break-after: always"></div>
+
+## Descrição e detalhes da cultura
+```{r cultura, echo=FALSE, message=FALSE, warning=FALSE}
+kable(t(cultura[1,]), format = "html", col.names = c("Dados de preenchimento"), align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE, font_size = 16) %>% 
+  footnote(general_title = "Observações:", general = c("Os campos *vazios* deverão ser preenchidos manualmente, visto que não são restrições para a instalação do ensaio.","Os campos previamente preenchidos deverão ser respeitados, visto que foram definidos previamente e são componentes do projeto técnico."), fixed_small_size = TRUE)
+```
+
+## Agrotóxicos objeto da pesquisa
+```{r produtos, echo=FALSE, message=FALSE, warning=FALSE}
+kable(t(produto), format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE) %>% 
+  footnote(general_title = "Observações:", general = "NA = não se aplica; ? = informação inexistente ou faltante", fixed_small_size = TRUE)
+```
+
+## Descrição e detalhes da praga/alvo
+```{r alvo, echo=FALSE, message=FALSE, warning=FALSE}
+n.alvos = as.numeric(geral$info[24])
+kable(t(alvo[1:n.alvos,]), format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+<div style="page-break-after: always"></div>
+
+## Tratamentos propostos
+```{r tabela de tratamentos, echo=FALSE, message=FALSE, warning=FALSE}
+tab_trats = tratamentos[,c(1,3,4,5,6,7,8,9)]
+kable(tab_trats[,2:8], col.names = c("Produto",	"Ingrediente ativo",	"Concentração",	"Formulação",	"Dose",	"",	"Épocas"), format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "condensed", full_width = TRUE) %>%
+  pack_rows(index = table(tab_trats$Cod), hline_before = TRUE, hline_after = TRUE) %>% 
+  footnote(general_title = "Observações:", general = "", fixed_small_size = TRUE)
+```
+
+### Critérios para aplicação dos tratamentos
+```{r critérios sobre aplicação, echo=FALSE, message=FALSE, warning=FALSE}
+kable(coment, col.names = c(""), format = "markdown", align = 'l')
+```
+
+### Metodologia de aplicação dos tratamentos
+```{r metodo de aplicação, echo=FALSE, message=FALSE, warning=FALSE}
+kable(metod.apl[,2:3], col.names = c("Características da aplicação",""), format = "html", align = 'l') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+## Delineamento experimental
+
+O delineamento experimental adotado será o `r geral$info[14]`, composto por `r geral$info[15]` tratamentos e `r geral$info[16]` repetições.
+As parcelas experimentais serão compostas por `r geral$info[17]`, com área total de `r geral$info[18]` m^2^.
+Para as avaliações, será considerada a área útil da parcela como `r geral$info[19]`, com área de `r geral$info[20]` m^2^.
+
+## Avaliações propostas
+```{r lista de avaliações, echo=FALSE, message=FALSE, warning=FALSE}
+kable(metod.avl[,3], col.names = c(""), format = "markdown", align = 'l')
+```
+
+## Responsável Técnico
+
+```{r assinatura responsável, echo=FALSE, message=FALSE, warning=FALSE}
+kable(geral[3:4,2], format = "html", col.names = c(""), row.names = FALSE,align = 'c') %>%
+  kable_styling(bootstrap_options = "responsive", full_width = FALSE, font_size = 16)
+```
+
+<div style="page-break-after: always"></div>
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Doses dos produtos por aplicação
+```{r tabela de doses, echo=FALSE, message=FALSE, warning=FALSE}
+num.colunas = length(colnames(tratamentos))
+tab_doses = tratamentos[,c(1,3,7,8,10,12:num.colunas,11)]
+num.colunas2 = length(colnames(tab_doses))
+kable(tab_doses[,2:num.colunas2], format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE) %>%
+  pack_rows(index = table(tab_doses$Cod)) %>% 
+  footnote(number_title = "Observações:", fixed_small_size = TRUE, number = c("Volume de calda a ser preparado (litros)","Unidade de dosagem para cada produto (g = gramas; mL = mililitros)"))
+```
+
+<div style="page-break-after: always"></div>
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Dados coletados nas aplicações
+
+```{r dados das aplicações, echo=FALSE, message=FALSE, warning=FALSE}
+kable(dados.apl[,2:length(colnames(dados.apl))], format = "html", align = 'l') %>%
+  column_spec(column = c(1), width = "3.0in") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = TRUE) %>% 
+  footnote(number_title = "Observações:", number = c("Condições da planta no momento da aplicação: 1= murcha extrema; 2= murcha leve; 3= normal; 4= pouco molhamento foliar; 5= alto molhamento foliar (escorrimento).","Condições do solo no momento da aplicação: 1= extremamente seco; 2= seco; 3= úmido; 4= enxarcado; 5= alagado."), fixed_small_size = TRUE)
+```
+
+<div style="page-break-after: always"></div>
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Esquema de casualização dos tratamentos
+```{r esquema de casualização, echo=FALSE, message=FALSE, warning=FALSE}
+Tratamento = aux$Tratamento
+n.Blocos = max(aux$Blocos)
+casual.Tratamentos = design.rcbd(Tratamento, n.Blocos, serie = 0, seed = 14, kinds = "Super-Duper", first=FALSE, continue=TRUE, randomization=TRUE)
+kable(casual.Tratamentos$book, col.names = c("Parcela","Bloco","Tratamento"),format = "html", align = "ccl") %>%
+  kable_styling(bootstrap_options = "bordered", full_width = FALSE, font_size = 10)
+tab.casual.Tratamentos = full_join(casual.Tratamentos$book, aux, by = "Tratamento") %>% 
+  rename(Parc=plots,Bloco=block)
+write.xlsx(tab.casual.Tratamentos, "./TabelaComCasualizacao.xlsx", sheetName = "Tabela")
+```
+
+<div style="page-break-after: always"></div>
+
+# References
