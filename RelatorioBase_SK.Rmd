@@ -1,0 +1,479 @@
+---
+author: "Danilo Franco"
+output:
+  html_document:
+    css: http://cdn.jsdelivr.net/gh/francodanilo/LaudosFarmatacR/estilo.css
+    includes:
+      in_header: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/cab.html
+    theme: default
+    fig_caption: yes
+    fig_width: 12
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+  pdf_document:
+    toc: yes
+bibliography: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/references.bib
+csl: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/abnt.csl
+lang: pt-br
+---
+
+```{r bibliotecas, include=FALSE}
+library(tidyverse)
+library(ggtext)
+library(xlsx)
+library(agricolae)
+library(knitr)
+library(kableExtra)
+library(multcompView)
+library(xtable)
+library(rnaturalearth)
+library(rnaturalearthhires)
+library(magick)
+library(cowplot)
+library(easyanova)
+```
+
+```{r funções, include=FALSE}
+url_logo = "https://i.imgur.com/iDoLqC9.png"
+logo <- image_read(url_logo)
+
+Box.Cox <- function(x) {
+  sqrt(x + mean(x))
+}
+
+```
+
+```{r carregando planilhas, include=FALSE}
+arquivo = choose.files()
+setwd(dirname(arquivo))
+knitr::opts_knit$set(root.dir = getwd())
+
+aux = read.xlsx(arquivo, sheetName = "aux", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) 
+
+geral = read.xlsx(arquivo, sheetName = "geral", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+cultura = read.xlsx(arquivo, sheetName = "cultura", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+alvo = read.xlsx(arquivo, sheetName = "alvo", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+produto = read.xlsx(arquivo, sheetName = "produto", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+tratamentos = read.xlsx(arquivo, sheetName = "tratamentos", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+coment = read.xlsx(arquivo, sheetName = "coment", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+metod.apl = read.xlsx(arquivo, sheetName = "metod.apl", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  filter(check == "x")
+
+dados.apl = read.xlsx(arquivo, sheetName = "dados.apl", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  filter(check == "x") %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+metod.avl = read.xlsx(arquivo, sheetName = "metod.avl", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  filter(check == "x")
+
+cronogramaOriginal = read.xlsx(arquivo, sheetName = "cronograma", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+cronograma = cronogramaOriginal %>% 
+  mutate_at(c("BBCH"), ~replace(., is.na(.), " ")) %>% 
+  mutate_at(c("Data"), ~format(.,"%d/%m/%Y"))
+
+para_csv = cronograma[5:7] %>% 
+  mutate(Start.Time = "08:00:00") %>% 
+  mutate(End.Time = "17:00:00") %>% 
+  mutate(All.Day.Event = "False") %>% 
+  mutate(Private = "False") %>% 
+  mutate(End.Date = Data) %>% 
+  mutate(Local = paste(geral$info[9],", ",geral$info[10],", Brasil"))
+
+write.table(para_csv[c(1,2,4,8,5,6,3,9,7)],
+            file="./AgendaCSV.csv",
+            col.names = c("Subject","Start Date","Start Time","End Date","End Time","All Day Event","Description","Location","Private"),
+            sep = ",",
+            row.names = FALSE, 
+            fileEncoding = "UTF-8")
+
+manutencao = read.xlsx(arquivo, sheetName = "manutencao", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE) %>% 
+  mutate_all(~replace(., is.na(.), " "))
+
+legendas = read.xlsx(arquivo, sheetName = "legendas", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+row.names(legendas) = legendas$Cod
+
+discussao = read.xlsx(arquivo, sheetName = "discussao", encoding="UTF-8", startRow=6, stringsAsFactors=FALSE)
+
+dados = read.xlsx(arquivo, sheetName = "dados", encoding="UTF-8", startRow=6, stringsAsFactors=TRUE)
+```
+
+```{r configuração de varieaveis, include=FALSE}
+data.inicial = min(cronogramaOriginal$Data)
+data.final = max(cronogramaOriginal$Data)
+periodo.ensaio = as.numeric(difftime(data.final,data.inicial,units = "days"))
+5
+area.ensaio = as.numeric(geral$info[15])*as.numeric(geral$info[16])*as.numeric(geral$info[18])
+
+long = as.numeric(geral$info[12])
+lat = as.numeric(geral$info[11])
+
+BR = ne_states(country = "Brazil", returnclass = "sf")
+estado = BR[BR$postal == geral$info[10],]
+localizacao = data.frame(long = c(long), lat = c(lat))
+```
+
+---
+title: "Relatório - `r geral$info[1]`"
+date: `r geral$info[22]`
+---
+
+# Requerente/Contratante
+`r geral$info[2]`
+
+# Contratada
+Farm Assistência Técnica S/S Ltda<br/>Estm Bebedouro a Terra Roxa sn Km 6<br/>Bebebedouro-SP<br/>CNPJ 05.814.979/0001-55
+
+## Responsável Técnico
+
+```{r responsável técnico, echo=FALSE, message=FALSE, warning=FALSE}
+kable(geral[3:4,2], format = "markdown", col.names = c(""), row.names = FALSE, align = 'l') %>%
+  kable_styling(full_width = FALSE)
+```
+
+# Objetivo da pesquisa
+
+`r geral$info[5]`
+
+<div style="page-break-after: always"></div>
+
+# Materiais e Métodos
+## Local de condução da pesquisa
+```{r local, echo=FALSE, message=FALSE, warning=FALSE}
+kable(geral[6:13,], format = "html", col.names = c("","Dados de preenchimento"), row.names = FALSE,align = 'l') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+### Croqui de localização do ensaio
+```{r mapas, echo=FALSE, message=FALSE, warning=FALSE}
+g1 = ggplot() + 
+        geom_sf(data = BR) +
+        geom_sf(data = estado, fill = "white") +
+        geom_point(data = localizacao, aes(x=long, y=lat), colour="red", size=2) +
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              axis.text = element_blank(),
+              axis.ticks = element_blank(),
+              panel.grid = element_blank())
+
+g2 = ggplot() + 
+        geom_sf(data = BR) +
+        geom_sf(data = estado, fill = "white") +
+        geom_point(data = localizacao, aes(x=long, y=lat), colour="red", size=2)+
+        xlim(min(localizacao$long) - 6, max(localizacao$long) + 6) +
+        ylim(min(localizacao$lat) - 5, max(localizacao$lat) + 3) + 
+        theme_minimal() +
+        theme(axis.title = element_blank(),
+              axis.text = element_blank(),
+              axis.ticks = element_blank())
+
+cowplot::plot_grid(g1, g2, labels = "AUTO")
+```
+
+## Descrição e detalhes da cultura
+```{r cultura, echo=FALSE, message=FALSE, warning=FALSE}
+kable(t(cultura[1,]), format = "html", col.names = c("Dados de preenchimento"), align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+## Agrotóxicos objeto da pesquisa
+```{r produtos, echo=FALSE, message=FALSE, warning=FALSE}
+kable(t(produto), format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE) %>% 
+  footnote(general_title = "Observações:", general = "NA = não se aplica; ? = informação inexistente ou faltante", fixed_small_size = TRUE)
+```
+
+## Descrição e detalhes da praga/alvo
+```{r alvo, echo=FALSE, message=FALSE, warning=FALSE}
+n.alvos = as.numeric(geral$info[24])
+kable(t(alvo[1:n.alvos,]), format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+<div style="page-break-after: always"></div>
+
+## Tratamentos propostos
+```{r tabela de tratamentos, echo=FALSE, message=FALSE, warning=FALSE}
+tab_trats = tratamentos[,c(1,3,4,5,6,7,8,9)]
+kable(tab_trats[,2:8], col.names = c("Produto",	"Ingrediente ativo",	"Concentração",	"Formulação",	"Dose",	"",	"Épocas"), format = "html", align = 'c') %>%
+  kable_styling(bootstrap_options = "condensed", full_width = TRUE) %>%
+  pack_rows(index = table(tab_trats$Cod), hline_before = TRUE, hline_after = TRUE) %>% 
+  footnote(general_title = "Observações:", general = "", fixed_small_size = TRUE)
+```
+
+### Critérios para aplicação dos tratamentos
+```{r critérios sobre aplicação, echo=FALSE, message=FALSE, warning=FALSE}
+kable(coment, col.names = c(""), format = "markdown", align = 'l')
+```
+
+### Metodologia de aplicação dos tratamentos
+```{r metodo de aplicação, echo=FALSE, message=FALSE, warning=FALSE}
+kable(metod.apl[,2:3], col.names = c("Características da aplicação",""), format = "html", align = 'l') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+## Delineamento experimental
+
+O delineamento experimental adotado foi o `r geral$info[14]`, composto por `r geral$info[15]` tratamentos e `r geral$info[16]` repetições.
+
+As parcelas experimentais foram compostas por `r geral$info[17]`, com área total de `r geral$info[18]` m^2^.
+
+Para as avaliações, foi considerada a área útil da parcela como `r geral$info[19]`, com área de `r geral$info[20]` m^2^.
+
+## Metodologia das avaliações
+```{r lista de avaliações, echo=FALSE, message=FALSE, warning=FALSE}
+kable(metod.avl[,3], col.names = c(""), format = "markdown", align = 'l')
+```
+
+## Cronograma de execução das atividades
+```{r tabela de cronograma, echo=FALSE, message=FALSE, warning=FALSE}
+kable(cronograma[,c(1,2,3,6,7)], col.names = c("",	"Referência", "BBCH", "Data", "Descrição das atividades"),format = "html", align = 'rlcccl') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+<div style="page-break-after: always"></div>
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+## Dados coletados nas aplicações
+```{r dados das aplicações, echo=FALSE, message=FALSE, warning=FALSE}
+kable(dados.apl[,2:length(colnames(dados.apl))], format = "html", align = 'l') %>%
+  column_spec(column = c(1), width = "3.0in") %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE) %>% 
+  footnote(number_title = "Observações:", fixed_small_size = TRUE, number = c("Condições da planta no momento da aplicação: 1= murcha extrema; 2= murcha leve; 3= normal; 4= pouco molhamento foliar; 5= alto molhamento foliar (escorrimento).","Condições do solo no momento da aplicação: 1= extremamente seco; 2= seco; 3= úmido; 4= enxarcado; 5= alagado."))
+```
+
+<div style="page-break-after: always"></div>
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Resultados
+```{r outliers, include=FALSE, message=FALSE, warning=FALSE}
+for (c in aux$Trat) {
+  for (x in names(subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
+    IQR.local = IQR(dados[[x]][dados$Trat == c])
+    Q3.local = quantile(dados[[x]][dados$Trat == c], probs = 0.75)
+    Q1.local = quantile(dados[[x]][dados$Trat == c], probs = 0.25)
+    Ymin = Q1.local-(1.5*IQR.local) 
+    Ymax = Q3.local+(1.5*IQR.local)
+    dados[[x]][dados$Trat == c & dados[[x]] < Ymin] = Ymin
+    dados[[x]][dados$Trat == c & dados[[x]] > Ymax] = Ymax
+  }
+}
+```
+
+
+```{r fitotoxicidade, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+cat("## Análises da seletividade dos tratamentos à cultura")
+
+for (c in names(subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
+  
+  if(legendas[c,"Fito"] == "Sim") {
+    cat("\n","\n")
+    
+    tab.Tukey = dados %>% 
+      group_by(Tratamento) %>% 
+      summarise_at({{c}}, funs(mean)) %>% 
+      as.data.frame()
+    
+    cat(kable(tab.Tukey, col.names = c("Tratamentos",legendas[c,"ColunaFito"]), caption = legendas[c,"legendaFito"]) %>% 
+          kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+          footnote(general_title = "Observações", general = c("Não houve comparação estatística, somente apresentação das notas médias")))
+    cat("\n","\n",'<div style="page-break-after: always"></div>')
+  }
+}
+```
+
+
+```{r estatistica, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+cat("## Análises da eficácia dos tratamentos")
+
+for (c in names(subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
+  
+  if(legendas[c,"Tukey"] == "Sim") {
+    
+    if(sum(dados[[c]]) == 0) {
+      cat("\n","\n")
+      cat(legendas[c,"SubtituloEfic"])
+      cat("\n","\n")
+      
+      tab.Tukey = dados %>% 
+        group_by(Tratamento) %>% 
+        summarise_at({{c}}, funs(mean)) %>% 
+        as.data.frame()
+      
+      cat(kable(tab.Tukey, col.names = c("Tratamentos",legendas[c,"ColunaEfic"]), caption = legendas[c,"legendaTukey"]) %>% 
+            kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+            footnote(general_title = "Informações estatísticas", general = c("Não houve comparação estatística em virtude de todos os dados apresentarem valores 0(zero)",legendas[c,"rodapeTukey"])))
+      cat("\n","\n",'<div style="page-break-after: always"></div>')
+
+    } else {
+      cat("\n","\n")
+      cat(legendas[c,"SubtituloEfic"])
+      cat("\n","\n")
+      
+      dadosT = Box.Cox(dados[[c]])
+      
+      dados2 = dados[3]
+      dados2$Bloco = dados$Bloco
+      dados2$dadosT = dadosT
+      sk = ea1(dados2, design = 2, alpha = 0.05, list = FALSE, p.adjust=5, plot=3)
+      
+      anava = aov(dadosT ~ Tratamento + Bloco, data = dados)
+      TK = TukeyHSD(anava, conf.level = 0.90, ordered = FALSE)
+      letras = multcompLetters4(anava,TK)
+      
+      Fvalue = summary(anava)[[1]][["F value"]][1]
+      pvalue = summary(anava)[[1]][["Pr(>F)"]][1]
+      cv = cv.model(anava)
+      
+      tab.Tukey = dados %>% 
+        group_by(Tratamento) %>% 
+        summarise_at({{c}}, funs(mean, sd, quantile(., probs = 0.75))) %>% 
+        arrange(desc(mean)) %>% 
+        mutate(ltrs = sk$`Adjusted means`$scott_knott) %>% 
+        arrange(Tratamento) %>% 
+        as.data.frame()
+      
+      if(legendas[c,"AouR"] == "Eficácia (%)") {
+        tab.Tukey = tab.Tukey %>% mutate(Efic = round((tab.Tukey[1,2]-tab.Tukey[,2])/tab.Tukey[1,2]*100,1))
+      } else {
+        tab.Tukey = tab.Tukey %>% mutate(Efic = round(tab.Tukey[,2]/tab.Tukey[1,2]*100,1))
+      }
+      
+      if(legendas[c,"Boxp"] == "Sim") {
+        cat("\n","\n")
+      
+        gbp0 = ggplot(dados, aes(x=Tratamento, y=dados[[c]])) + 
+        geom_boxplot(fill = "lightgray", outlier.shape = NA) + 
+        labs(x = legendas[c,"xBoxplot"], y=legendas[c,"yBoxplot"]) +
+        geom_jitter(height = 0, width = 0.1, shape=1, size=3,color = "darkgreen",) +
+        stat_summary(fun.y=mean, geom="point", shape=23, size=3, color = "#314650", fill = "#314650") +
+        theme_bw() + 
+        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.text.x = element_markdown()) +
+        geom_text(data = tab.Tukey, aes(label = ltrs, x = Tratamento, y = quantile), vjust = -1, hjust = -1) +
+        geom_text(data = tab.Tukey, aes(label = paste0("(",Efic,"%)"), x = Tratamento, y = quantile), vjust = -1, hjust = 1.2, size = 3) +
+        geom_label(data = tab.Tukey, aes(label = round(mean, digits = 2), x = Tratamento, y = mean), vjust = 1.3, hjust = 1) +
+        scale_x_discrete(labels= aux$Trat)
+        
+        gbp = ggdraw() + draw_plot(gbp0) +
+              draw_image(logo,  x = 0.44, y = 0.4, scale = .15)
+              
+        print(gbp)
+      }
+      cat("\n","\n")
+      
+      cat(kable(tab.Tukey[,c(1,2,5,6)], col.names = c("Tratamentos",legendas[c,"ColunaEfic"],"",legendas[c,"AouR"]), caption = legendas[c,"legendaTukey"]) %>% 
+            kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
+            footnote(general_title = "Informações estatísticas", general = c(paste("Teste F = ", round(Fvalue,digits = 3)," Pr(>F) = ",round(pvalue,digits = 3), "; CV (%) =  ", round(cv,digits = 2), sep = " "),"Médias seguidas das mesmas letras, não diferem entre si pelo teste de Scott-Knott com 5% de probabilidade de erro.",legendas[c,"rodapeTukey"])))
+      cat("\n","\n",'<div style="page-break-after: always"></div>')
+    }
+      
+  }
+  
+}
+```
+
+```{r regression, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+dadosReg = dados %>% filter(Regr == "x")
+dadosReg$Dose = as.numeric(dadosReg$Dose)
+doses = unique(dadosReg$Dose)
+  
+cat("## Análises da resposta ao incremento de dose")
+
+for (j in names( subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
+  
+  if(legendas[j,"Regr"] == "Sim") {
+    cat("\n","\n")
+    cat(legendas[j,"SubtituloRegr"])
+    cat("\n","\n")
+    
+    dadosReg[[j]] = as.numeric(dadosReg[[j]])
+    modelo = glm(dadosReg[[j]] ~ Dose, dadosReg, family = poisson(link = "log"))
+    
+    cat(knitr::kable(xtable(summary(modelo),type='html'), format = "html", col.names = c("Coeficientes","Desvio padrão","p valor","Pr(>|p|)"), caption = "Coeficientes da análise de resposta ao incremento de dose") %>% 
+          kable_styling(bootstrap_options = "striped", full_width = TRUE))
+    cat("\n","\n")
+    
+    if (legendas[j,"RegrSign"] == "Sim") {
+      n = ggplot(dadosReg, aes(x = Dose, y = dadosReg[[j]])) +
+          geom_jitter(width = 0.1) +
+          stat_smooth(method = "glm", se = FALSE, method.args = list(family = "poisson"), linetype = "dashed") +
+          scale_x_continuous(breaks = doses) +
+          labs(x = legendas[j,"xRegr"], y = legendas[j,"yRegr"]) +
+          theme_bw() +
+          theme(legend.position = "none")
+      
+      print(n)
+      
+    } else {
+      n = ggplot(dadosReg, aes(Dose, dadosReg[[j]])) +
+          geom_jitter(width = 0.1) +
+          scale_x_continuous(breaks = doses) +
+          labs(x = legendas[j,"xRegr"], y = legendas[j,"yRegr"]) +
+          theme_bw() +
+          theme(legend.position = "none")
+      
+      print(n)
+      
+    }
+    
+    cat("\n","\n",'<div style="page-break-after: always"></div>')
+  }
+}
+
+```
+
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Discussão e conclusões
+```{r discussao, echo=FALSE, message=FALSE, warning=FALSE}
+kable(discussao, col.names = c(""), format = "markdown", align = 'l')
+```
+
+<div style="page-break-after: always"></div>
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Anexo (Dados da manutenção da cultura)
+```{r tabela manutenção, echo=FALSE, message=FALSE, warning=FALSE}
+kable(manutencao, format = "html", col.names = c("","Data","Descrição do alvo ou atividade","Insumo","i.a.","Dose"), align = 'c') %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE, font_size = 14) %>% 
+  pack_rows(index = table(manutencao$Cod))
+```
+
+<div style="page-break-after: always"></div>
+
+# Anexo (Dados climáticos coletados durante a condução do ensaio)
+```{r dados climáticos, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+if(data.final < Sys.Date()) {
+  data.final.clima = data.final
+} else {
+  data.final.clima = Sys.Date()
+}
+
+library(nasapower)
+
+clima = get_power(community = "ag", lonlat = c(long,lat), dates = c(data.inicial,data.final.clima), pars = c("RH2M","T2M_MIN","T2M_MAX","PRECTOTCORR"), temporal_api = "daily")
+clima$YYYYMMDD = format(clima$YYYYMMDD, "%d-%m-%Y")
+clima$RH2M = round(clima$RH2M, 1)
+clima$T2M_MIN = round(clima$T2M_MIN, 1)
+clima$T2M_MAX = round(clima$T2M_MAX, 1)
+clima$PRECTOTCORR = round(clima$PRECTOTCORR, 1)
+
+kable(clima[,c(7,11,8,9,10)], format = "html", align = 'c', col.names = c("Data","Precipitação","Umidade Relativa","Temperatura Mínima","Temperatura Máxima")) %>%
+  kable_styling(bootstrap_options = "striped", full_width = TRUE)
+```
+
+<div style="page-break-after: always"></div>
+
+# References
