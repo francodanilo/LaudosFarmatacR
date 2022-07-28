@@ -7,6 +7,7 @@ output:
       in_header: https://raw.githubusercontent.com/francodanilo/LaudosFarmatacR/main/cab.html
     theme: default
     fig_caption: yes
+    fig_width: 12
     number_sections: yes
     toc: yes
     toc_float:
@@ -20,17 +21,26 @@ lang: pt-br
 
 ```{r bibliotecas, include=FALSE}
 library(tidyverse)
+library(ggtext)
 library(xlsx)
 library(agricolae)
 library(knitr)
 library(kableExtra)
 library(multcompView)
 library(xtable)
-library(geobr)
+library(rnaturalearth)
+library(rnaturalearthhires)
+library(magick)
+library(cowplot)
 ```
 
 ```{r funções, include=FALSE}
+url_logo = "https://i.imgur.com/iDoLqC9.png"
+logo <- image_read(url_logo)
 
+Box.Cox <- function(x) {
+  sqrt(x + mean(x))
+}
 
 ```
 
@@ -108,8 +118,8 @@ area.ensaio = as.numeric(geral$info[15])*as.numeric(geral$info[16])*as.numeric(g
 long = as.numeric(geral$info[12])
 lat = as.numeric(geral$info[11])
 
-BR = read_state(year=2020)
-estado = read_state(code_state = geral$info[10], year=2020)
+BR = ne_states(country = "Brazil", returnclass = "sf")
+estado = BR[BR$postal == geral$info[10],]
 localizacao = data.frame(long = c(long), lat = c(lat))
 ```
 
@@ -122,13 +132,7 @@ date: `r geral$info[22]`
 `r geral$info[2]`
 
 # Contratada
-Farm Assistência Técnica S/S Ltda
-
-CNPJ 05.814.979/0001-55
-
-Estm Bebedouro a Terra Roxa sn Km 6
-
-Bebebedouro-SP
+Farm Assistência Técnica S/S Ltda<br/>Estm Bebedouro a Terra Roxa sn Km 6<br/>Bebebedouro-SP<br/>CNPJ 05.814.979/0001-55
 
 ## Responsável Técnico
 
@@ -244,7 +248,7 @@ Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
 ```{r dados das aplicações, echo=FALSE, message=FALSE, warning=FALSE}
 kable(dados.apl[,2:length(colnames(dados.apl))], format = "html", align = 'l') %>%
   column_spec(column = c(1), width = "3.0in") %>%
-  kable_styling(bootstrap_options = "bordered", full_width = TRUE) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = TRUE) %>% 
   footnote(number_title = "Observações:", fixed_small_size = TRUE, number = c("Condições da planta no momento da aplicação: 1= murcha extrema; 2= murcha leve; 3= normal; 4= pouco molhamento foliar; 5= alto molhamento foliar (escorrimento).","Condições do solo no momento da aplicação: 1= extremamente seco; 2= seco; 3= úmido; 4= enxarcado; 5= alagado."))
 ```
 
@@ -252,11 +256,26 @@ kable(dados.apl[,2:length(colnames(dados.apl))], format = "html", align = 'l') %
 Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
 
 # Resultados
+```{r outliers, include=FALSE, message=FALSE, warning=FALSE}
+for (c in aux$Trat) {
+  for (x in names(subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
+    IQR.local = IQR(dados[[x]][dados$Trat == c])
+    Q3.local = quantile(dados[[x]][dados$Trat == c], probs = 0.75)
+    Q1.local = quantile(dados[[x]][dados$Trat == c], probs = 0.25)
+    Ymin = Q1.local-(1.5*IQR.local) 
+    Ymax = Q3.local+(1.5*IQR.local)
+    dados[[x]][dados$Trat == c & dados[[x]] < Ymin] = Ymin
+    dados[[x]][dados$Trat == c & dados[[x]] > Ymax] = Ymax
+  }
+}
+```
+
 
 ```{r fitotoxicidade, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
 cat("## Análises da seletividade dos tratamentos à cultura")
 
-for (c in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose))) {
+for (c in names(subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
   
   if(legendas[c,"Fito"] == "Sim") {
     cat("\n","\n")
@@ -272,14 +291,13 @@ for (c in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose)))
     cat("\n","\n",'<div style="page-break-after: always"></div>')
   }
 }
-
 ```
 
 
 ```{r estatistica, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 cat("## Análises da eficácia dos tratamentos")
 
-for (c in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose))) {
+for (c in names(subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
   
   if(legendas[c,"Tukey"] == "Sim") {
     
@@ -303,9 +321,10 @@ for (c in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose)))
       cat(legendas[c,"SubtituloEfic"])
       cat("\n","\n")
       
-      dadosT = sqrt(dados[[c]] + mean(dados[[c]]))
+      dadosT = Box.Cox(dados[[c]])
+      
       anava = aov(dadosT ~ Tratamento + Bloco, data = dados)
-      TK = TukeyHSD(anava, conf.level = 0.95, ordered = FALSE)
+      TK = TukeyHSD(anava, conf.level = 0.90, ordered = FALSE)
       letras = multcompLetters4(anava,TK)
       
       Fvalue = summary(anava)[[1]][["F value"]][1]
@@ -329,24 +348,28 @@ for (c in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose)))
       if(legendas[c,"Boxp"] == "Sim") {
         cat("\n","\n")
       
-        gbp = ggplot(dados, aes(x=Tratamento, y=dados[[c]])) + 
-        geom_boxplot() + 
+        gbp0 = ggplot(dados, aes(x=Tratamento, y=dados[[c]])) + 
+        geom_boxplot(fill = "lightgray", outlier.shape = NA) + 
         labs(x = legendas[c,"xBoxplot"], y=legendas[c,"yBoxplot"]) +
-        geom_jitter(height = 0, width = 0.1, shape = 21, size = 2,color = "blue", fill = "blue", alpha = 0.5) +
-        stat_summary(fun.y=mean, geom="point", shape=23, size=3, color = "red", fill = "red") +
+        geom_jitter(height = 0, width = 0.1, shape=1, size=3,color = "darkgreen",) +
+        stat_summary(fun.y=mean, geom="point", shape=23, size=3, color = "#314650", fill = "#314650") +
         theme_bw() + 
-        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+        theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.text.x = element_markdown()) +
         geom_text(data = tab.Tukey, aes(label = ltrs, x = Tratamento, y = quantile), vjust = -1, hjust = -1) +
         geom_text(data = tab.Tukey, aes(label = paste0("(",Efic,"%)"), x = Tratamento, y = quantile), vjust = -1, hjust = 1.2, size = 3) +
-        geom_label(data = tab.Tukey, aes(label = mean, x = Tratamento, y = mean), vjust = 1.3, hjust = 1) +
+        geom_label(data = tab.Tukey, aes(label = round(mean, digits = 2), x = Tratamento, y = mean), vjust = 1.3, hjust = 1) +
         scale_x_discrete(labels= aux$Trat)
-      print(gbp)
+        
+        gbp = ggdraw() + draw_plot(gbp0) +
+              draw_image(logo,  x = 0.44, y = 0.4, scale = .15)
+              
+        print(gbp)
       }
       cat("\n","\n")
       
       cat(kable(tab.Tukey[,c(1,2,5,6)], col.names = c("Tratamentos",legendas[c,"ColunaEfic"],"",legendas[c,"AouR"]), caption = legendas[c,"legendaTukey"]) %>% 
             kable_styling(bootstrap_options = "striped", full_width = FALSE) %>%
-            footnote(general_title = "Informações estatísticas", general = c(paste("Teste F = ", round(Fvalue,digits = 3)," Pr(>F) = ",round(pvalue,digits = 3), sep = " "), paste("CV (%) =  ", round(cv,digits = 2), sep = " "),"Médias seguidas das mesmas letras, não diferem entre si pelo teste de Tukey com 5% de probabilidade de erro",legendas[c,"rodapeTukey"])))
+            footnote(general_title = "Informações estatísticas", general = c(paste("Teste F = ", round(Fvalue,digits = 3)," Pr(>F) = ",round(pvalue,digits = 3), "; CV (%) =  ", round(cv,digits = 2), sep = " "),"Médias seguidas das mesmas letras, não diferem entre si pelo teste de Tukey com 5% de probabilidade de erro.",legendas[c,"rodapeTukey"])))
       cat("\n","\n",'<div style="page-break-after: always"></div>')
     }
       
@@ -362,7 +385,7 @@ doses = unique(dadosReg$Dose)
   
 cat("## Análises da resposta ao incremento de dose")
 
-for (j in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose))) {
+for (j in names( subset(dados, select = -c(Parc, Bloco, Tratamento, Trat, Regr, Dose)))) {
   
   if(legendas[j,"Regr"] == "Sim") {
     cat("\n","\n")
@@ -405,6 +428,13 @@ for (j in names(select(dados, -Parc, -Bloco, -Tratamento, -Trat, -Regr, -Dose)))
 
 ```
 
+Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
+
+# Discussão e conclusões
+```{r discussao, echo=FALSE, message=FALSE, warning=FALSE}
+kable(discussao, col.names = c(""), format = "markdown", align = 'l')
+```
+
 <div style="page-break-after: always"></div>
 Farm Assistência Técnica S/S Ltda | Ensaio: `r geral$info[1]`
 
@@ -424,7 +454,6 @@ if(data.final < Sys.Date()) {
 } else {
   data.final.clima = Sys.Date()
 }
-
 
 library(nasapower)
 
